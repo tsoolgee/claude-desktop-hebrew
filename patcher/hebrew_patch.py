@@ -68,6 +68,11 @@ def patch(ion: Path, translations: dict):
     he = {k: translations[v] for k, v in en.items() if v in translations}
     (ion / "i18n" / "he-IL.json").write_text(json.dumps(he, ensure_ascii=False), encoding="utf-8")
     done["catalog"] = f"{len(he)}/{len(en)} strings"
+    dyn_src = ion / "i18n" / "dynamic" / "en-US.json"
+    if dyn_src.exists():
+        den = json.loads(read(dyn_src))
+        dhe = {k: translations[v] for k, v in den.items() if isinstance(v, str) and v in translations}
+        (ion / "i18n" / "dynamic" / "he-IL.json").write_text(json.dumps(dhe, ensure_ascii=False), encoding="utf8")
     return done
 
 
@@ -75,7 +80,7 @@ def revert(ion: Path):
     n = 0
     for b in ion.rglob("*" + MARK):
         shutil.copy2(b, b.with_name(b.name[:-len(MARK)])); b.unlink(); n += 1
-    for f in (ion / "assets" / "he-rtl.js", ion / "i18n" / "he-IL.json"):
+    for f in (ion / "assets" / "he-rtl.js", ion / "i18n" / "he-IL.json", ion / "i18n" / "dynamic" / "he-IL.json"):
         if f.exists(): f.unlink()
     return n
 
