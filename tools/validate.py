@@ -5,8 +5,42 @@ ARG = re.compile(r"\{\s*([A-Za-z0-9_]+)")
 TAG = re.compile(r"</?([A-Za-z][A-Za-z0-9]*)\s*/?>")
 KW = re.compile(r"(?:,\s*(?:plural|select|selectordinal)\s*,)")
 
+HEADER = re.compile(r"\{\s*([A-Za-z0-9_]+)\s*,\s*(plural|select|selectordinal)\s*,")
+
+
+def parse_args(s):
+    """Return the set of argument names, descending into plural/select branches (branch keys are not args)."""
+    args = set()
+
+    def message(i, closing):
+        while i < len(s):
+            c = s[i]
+            if c == "}" and closing:
+                return i + 1
+            if c == "{":
+                m = HEADER.match(s, i)
+                if m:
+                    args.add(m.group(1)); i = m.end()
+                    while i < len(s):                      # branches: key {message}
+                        while i < len(s) and s[i].isspace(): i += 1
+                        if i < len(s) and s[i] == "}": i += 1; break
+                        while i < len(s) and not s[i].isspace() and s[i] != "{": i += 1   # key
+                        while i < len(s) and s[i].isspace(): i += 1
+                        if i < len(s) and s[i] == "{": i = message(i + 1, True)
+                        else: break
+                    continue
+                m = re.compile(r"\{\s*([A-Za-z0-9_]+)").match(s, i)
+                if m: args.add(m.group(1))
+                i = message(i + 1, True)
+                continue
+            i += 1
+        return i
+    message(0, False)
+    return args
+
+
 def sig(s):
-    return (sorted(set(ARG.findall(s))), sorted(TAG.findall(s)))
+    return (sorted(parse_args(s)), sorted(TAG.findall(s)))
 
 def balanced(s):
     d = 0

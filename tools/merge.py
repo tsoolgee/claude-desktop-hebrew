@@ -6,7 +6,7 @@ from validate import check
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 out = {}
 bad = 0
-for inp in sorted(glob.glob(os.path.join(ROOT, "_work/chunks/in_*.json"))):
+for inp in sorted(glob.glob(os.path.join(ROOT, "_work/*/in_*.json"))):
     o = inp.replace("in_", "out_")
     if not os.path.exists(o):
         continue
