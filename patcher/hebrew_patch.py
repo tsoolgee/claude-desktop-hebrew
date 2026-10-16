@@ -102,10 +102,44 @@ def unlock(ion: Path):
     subprocess.run(["icacls", str(ion), "/grant", "*S-1-5-32-544:(OI)(CI)F", "/T", "/C", "/Q"], capture_output=True)
 
 
+TASK = "ClaudeHebrewPatch"
+
+
+def is_patched(ion: Path):
+    return (ion / "i18n" / "he-IL.json").exists() and (ion / "assets" / "he-rtl.js").exists()
+
+
+def task_exists():
+    return subprocess.run(["schtasks", "/Query", "/TN", TASK], capture_output=True).returncode == 0
+
+
+def install_task():
+    """Opt-in only: re-run this exe at logon and every 3 hours with --auto (patches only if a Claude update removed the patch)."""
+    exe = sys.executable
+    ps = (f"$a=New-ScheduledTaskAction -Execute '{exe}' -Argument '--auto';"
+          "$t=@((New-ScheduledTaskTrigger -AtLogOn),(New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 3)));"
+          "$p=New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest -LogonType Interactive;"
+          "$s=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10);"
+          f"Register-ScheduledTask -TaskName {TASK} -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null")
+    return subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True).returncode == 0
+
+
+def remove_task():
+    subprocess.run(["schtasks", "/Delete", "/TN", TASK, "/F"], capture_output=True)
+
+
+def ask_yes_no(q):
+    try:
+        return input(q + " [y/N] ").strip().lower() in ("y", "yes", "כן")
+    except EOFError:
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser(description="Hebrew UI for Claude Desktop")
     ap.add_argument("--app", help="folder that contains resources/ (default: installed Claude package)")
-    ap.add_argument("--revert", action="store_true", help="remove the Hebrew patch")
+    ap.add_argument("--revert", action="store_true", help="remove the Hebrew patch (and the update task)")
+    ap.add_argument("--auto", action="store_true", help="silent mode used by the scheduled task")
     ap.add_argument("--translations", default=str(ROOT / "translations" / "he.json"))
     a = ap.parse_args()
     app = Path(a.app) if a.app else find_app()
@@ -114,16 +148,23 @@ def main():
     ion = app / "resources" / "ion-dist"
     if not ion.is_dir():
         sys.exit(f"missing {ion}")
+    if a.auto and is_patched(ion):
+        return
     if not a.app:
         if not is_admin():
             elevate()
         unlock(ion)
     if a.revert:
         print("restored", revert(ion), "files")
+        if not a.app:
+            remove_task()
     else:
         print(patch(ion, json.loads(read(Path(a.translations)))))
         print("Done. Restart Claude and choose Settings > Language > Hebrew.")
-    if getattr(sys, "frozen", False):
+        if not a.app and not a.auto and getattr(sys, "frozen", False) and not task_exists():
+            if ask_yes_no("Re-apply the patch automatically after Claude updates (scheduled task, runs at logon and every 3 hours)?"):
+                print("Task installed." if install_task() else "Could not install the task.")
+    if getattr(sys, "frozen", False) and not a.auto:
         input("Press Enter to close...")
 
 
