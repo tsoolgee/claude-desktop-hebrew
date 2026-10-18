@@ -13,6 +13,9 @@
 - ההתקנה של Claude נמצאת תחת `WindowsApps`, ולכן הכלי לוקח בעלות על התיקייה ומבקש הרשאות מנהל.
 
 ## שימוש
+הדרך הקלה: מריצים את `ClaudeHebrewInstaller.exe` (מתקין גרפי בעברית, מבקש הרשאות מנהל). הוא לא סוגר ולא מפעיל מחדש את Claude.
+
+שורת פקודה:
 ```
 python patcher/hebrew_patch.py            # מתקין (מבקש הרשאות מנהל)
 python patcher/hebrew_patch.py --revert   # מחזיר את המקור

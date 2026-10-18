@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>ממשק עברי עבור Claude</title>
+<style>
+:root{
+  --bg:#faf9f5;--card:#ffffff;--ink:#1f1e1d;--muted:#6b6a68;--line:#e8e6dc;
+  --accent:#c96442;--accent-ink:#ffffff;--ok:#2e7d32;--warn:#b26a00;--bad:#b3261e;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#262624;--card:#30302e;--ink:#f3f2ee;--muted:#a8a6a0;--line:#444441;--accent:#d97757;--ok:#7bc47f;--warn:#e0a84a;--bad:#f28b82}
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 "Segoe UI",Arial,sans-serif}
+body{padding:22px 24px 26px;min-height:100vh}
+h1{font-size:23px;margin:0 0 2px;font-weight:700}
+.sub{color:var(--muted);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row .k{color:var(--muted)}
+.row .v{font-weight:600;text-align:left;direction:rtl}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-inline-end:7px;background:var(--muted)}
+.ok .dot{background:var(--ok)}.warn .dot{background:var(--warn)}.bad .dot{background:var(--bad)}
+.note{display:flex;gap:10px;align-items:flex-start;font-size:14px}
+.note b{color:var(--ok)}
+button{font:inherit;cursor:pointer;border-radius:11px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:11px 18px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;font-size:16px;width:100%;padding:14px}
+button:disabled{opacity:.55;cursor:default}
+button.link{border:0;background:none;color:var(--muted);padding:6px 2px;text-decoration:underline}
+.actions{display:flex;gap:10px;align-items:center;margin-top:4px}
+label.opt{display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin-top:12px;font-size:14px}
+label.opt input{margin-top:4px;accent-color:var(--accent)}
+label.opt small{display:block;color:var(--muted)}
+.steps{margin:6px 0 0;padding-inline-start:20px}
+.steps li{margin:4px 0}
+kbd{background:var(--bg);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 6px;font:13px Consolas,monospace;direction:ltr;display:inline-block}
+#log{display:none;white-space:pre-wrap;direction:ltr;text-align:left;font:12.5px/1.5 Consolas,monospace;color:var(--muted);max-height:150px;overflow:auto;margin-top:10px}
+#done{display:none;border-color:var(--ok)}
+#done h3{margin:0 0 4px;color:var(--ok)}
+.spin{display:none;width:18px;height:18px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 0.8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+.foot{color:var(--muted);font-size:12.5px;margin-top:10px}
+</style>
+</head>
+<body>
+<h1>ממשק עברי עבור Claude Desktop</h1>
+<p class="sub">מוסיף עברית מלאה, כולל כיוון כתיבה מימין לשמאל, לאפליקציית Claude במחשב.</p>
+
+<div class="card" id="status">
+  <div class="row"><span class="k">Claude Desktop</span><span class="v" id="s-app"><span class="dot"></span>בודק…</span></div>
+  <div class="row"><span class="k">ממשק בעברית</span><span class="v" id="s-patch"><span class="dot"></span>בודק…</span></div>
+  <div class="row"><span class="k">Claude פועל כרגע</span><span class="v" id="s-run"><span class="dot"></span>בודק…</span></div>
+</div>
+
+<div class="card note">
+  <span>🔒</span>
+  <span><b>ההתקנה לא סוגרת ולא מפעילה מחדש את Claude</b> ולא נוגעת בחשבון המחובר שלכם או בשיחות הפעילות. היא רק מוסיפה קבצי שפה, והחלפה לעברית נעשית בהגדרות.</span>
+</div>
+
+<div class="card">
+  <button class="primary" id="go" onclick="doInstall()">התקנת העברית</button>
+  <label class="opt" id="taskopt">
+    <input type="checkbox" id="task">
+    <span>החלה מחדש אוטומטית אחרי עדכוני Claude
+      <small>יוצר משימה מתוזמנת שבודקת בכניסה למחשב ובכל 3 שעות, ומתקינה שוב רק אם עדכון מחק את העברית. אפשר להסיר בכל עת.</small></span>
+  </label>
+  <div class="actions" style="margin-top:12px">
+    <span class="spin" id="spin"></span>
+    <button id="rm" onclick="doRemove()">הסרת העברית</button>
+    <button class="link" onclick="toggleLog()">הצגת פירוט</button>
+  </div>
+  <div id="log"></div>
+</div>
+
+<div class="card" id="done">
+  <h3 id="done-title">ההתקנה הושלמה</h3>
+  <div id="done-text"></div>
+  <ol class="steps" id="done-steps"></ol>
+</div>
+
+<div class="foot">התרגום נעשה אוטומטית ועדיין לא עבר הגהה אנושית. מחרוזת שאין לה תרגום נשארת באנגלית. אחרי כל עדכון של Claude יש להריץ את המתקין שוב (או להפעיל את ההחלה האוטומטית).</div>
+
+<script>
+let busy=false;
+function set(id,cls,text){const e=document.getElementById(id);e.className='v '+cls;e.innerHTML='<span class="dot"></span>'+text}
+function toggleLog(){const l=document.getElementById('log');l.style.display=l.style.display==='block'?'none':'block'}
+function lock(b){busy=b;['go','rm'].forEach(i=>document.getElementById(i).disabled=b);document.getElementById('spin').style.display=b?'inline-block':'none'}
+function showLog(lines){const l=document.getElementById('log');l.textContent=(lines||[]).join('\n')}
+
+async function refresh(){
+  const s=await pywebview.api.status();
+  if(!s.found){set('s-app','bad','לא נמצא');document.getElementById('go').disabled=true;document.getElementById('rm').disabled=true;return}
+  set('s-app','ok','גרסה '+s.version);
+  set('s-patch',s.patched?'ok':'warn',s.patched?'מותקן':'לא מותקן');
+  set('s-run',s.running?'warn':'ok',s.running?'כן — לא ייסגר':'לא');
+  document.getElementById('go').textContent=s.patched?'עדכון / התקנה מחדש':'התקנת העברית';
+  document.getElementById('rm').style.display=s.patched?'inline-block':'none';
+  document.getElementById('task').checked=s.task;
+  document.getElementById('taskopt').style.display=s.can_task?'flex':'none';
+}
+function finish(title,text,steps){
+  const d=document.getElementById('done');d.style.display='block';
+  document.getElementById('done-title').textContent=title;
+  document.getElementById('done-text').textContent=text;
+  const ol=document.getElementById('done-steps');ol.innerHTML='';
+  (steps||[]).forEach(t=>{const li=document.createElement('li');li.innerHTML=t;ol.appendChild(li)});
+  d.scrollIntoView({behavior:'smooth'});
+}
+async function doInstall(){
+  if(busy)return;lock(true);document.getElementById('done').style.display='none';
+  const r=await pywebview.api.install(document.getElementById('task').checked);
+  showLog(r.log);lock(false);await refresh();
+  if(r.ok){
+    finish('ההתקנה הושלמה',r.summary,[
+      'ב-Claude פתחו <b>Settings ← Language</b> (הגדרות ← שפה) ובחרו <b>עברית</b>.',
+      'אם העברית לא מופיעה מיד, רעננו את החלון עם <kbd>Ctrl</kbd>+<kbd>R</kbd>, או הפעילו את Claude מחדש כשנוח לכם.'
+    ]);
+  } else {finish('ההתקנה לא הושלמה',r.error||'אירעה שגיאה.',['פתחו את "הצגת פירוט" לפרטים.']);document.getElementById('done').style.borderColor='var(--bad)'}
+}
+async function doRemove(){
+  if(busy)return;lock(true);document.getElementById('done').style.display='none';
+  const r=await pywebview.api.uninstall();
+  showLog(r.log);lock(false);await refresh();
+  finish(r.ok?'העברית הוסרה':'ההסרה לא הושלמה',r.ok?'קבצי המקור שוחזרו. אם Claude מוגדר לעברית, החזירו אותו לאנגלית בהגדרות.':(r.error||'אירעה שגיאה.'),[]);
+}
+window.addEventListener('pywebviewready',refresh);
+</script>
+</body>
+</html>
