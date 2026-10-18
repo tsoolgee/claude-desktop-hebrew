@@ -40,11 +40,38 @@ def backup(p: Path):
 
 
 def read(p): return p.read_text(encoding="utf-8")
-def write(p, s): p.write_text(s, encoding="utf-8", newline="")
+
+
+def write_bytes(p: Path, data: bytes):
+    """Atomic when possible (temp file + replace), so a running Claude never reads a half-written file.
+    Never touches processes or user data: a live Claude session stays connected while files are swapped."""
+    tmp = p.with_name(p.name + ".hebrew-tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, p)
+    except PermissionError:
+        try: tmp.unlink()
+        except OSError: pass
+        p.write_bytes(data)          # file held open by Claude without share-delete: overwrite in place
+
+
+def write(p, s): write_bytes(p, s.encode("utf-8"))
 
 
 def patch(ion: Path, translations: dict):
+    """Order matters for a running app: first add the catalogs and the RTL script (nothing references them yet),
+    and only then switch on the locale lists, so Claude never sees a language entry without its catalog."""
     done = {"locale_lists": 0, "names": 0, "html": 0, "catalog": False}
+    write_bytes(ion / "assets" / "he-rtl.js", (ROOT / "assets" / "he-rtl.js").read_bytes())
+    en = json.loads(read(ion / "i18n" / "en-US.json"))
+    he = {k: translations[v] for k, v in en.items() if v in translations}
+    write_bytes(ion / "i18n" / "he-IL.json", json.dumps(he, ensure_ascii=False).encode("utf-8"))
+    done["catalog"] = f"{len(he)}/{len(en)} strings"
+    dyn_src = ion / "i18n" / "dynamic" / "en-US.json"
+    if dyn_src.exists():
+        den = json.loads(read(dyn_src))
+        dhe = {k: translations[v] for k, v in den.items() if isinstance(v, str) and v in translations}
+        write_bytes(ion / "i18n" / "dynamic" / "he-IL.json", json.dumps(dhe, ensure_ascii=False).encode("utf-8"))
     for js in (ion / "assets").rglob("*.js"):
         s = read(js)
         if '"id-ID"' not in s:
@@ -52,27 +79,15 @@ def patch(ion: Path, translations: dict):
         n = s
         n, c1 = LOCALES_RE.subn(lambda m: m.group(1) + ',"he-IL"]', n)
         n, c2 = NAMES_RE.subn(lambda m: m.group(1) + "," + HE_NAME + m.group(2), n)
-        if (c1 or c2) and '"he-IL"' not in s.replace(HE_NAME, ""):
-            pass
         if n != s:
             backup(js); write(js, n)
             done["locale_lists"] += c1; done["names"] += c2
-    shutil.copy2(ROOT / "assets" / "he-rtl.js", ion / "assets" / "he-rtl.js")
     for name in ("index.html", "frame-shell.html", "client-shell-v1.html"):
         h = ion / name
         if h.exists():
             s = read(h)
             if SCRIPT_TAG not in s and "</head>" in s:
                 backup(h); write(h, s.replace("</head>", SCRIPT_TAG + "</head>", 1)); done["html"] += 1
-    en = json.loads(read(ion / "i18n" / "en-US.json"))
-    he = {k: translations[v] for k, v in en.items() if v in translations}
-    (ion / "i18n" / "he-IL.json").write_text(json.dumps(he, ensure_ascii=False), encoding="utf-8")
-    done["catalog"] = f"{len(he)}/{len(en)} strings"
-    dyn_src = ion / "i18n" / "dynamic" / "en-US.json"
-    if dyn_src.exists():
-        den = json.loads(read(dyn_src))
-        dhe = {k: translations[v] for k, v in den.items() if isinstance(v, str) and v in translations}
-        (ion / "i18n" / "dynamic" / "he-IL.json").write_text(json.dumps(dhe, ensure_ascii=False), encoding="utf8")
     return done
 
 
@@ -165,7 +180,8 @@ def main():
             remove_task()
     else:
         print(patch(ion, json.loads(read(Path(a.translations)))))
-        print("Done. Restart Claude and choose Settings > Language > Hebrew.")
+        print("Done. Claude was NOT closed or restarted, so your signed-in session and any running work stay connected.")
+        print("To see Hebrew: in Claude open Settings > Language > Hebrew, then reload the window (Ctrl+R) or restart Claude when it suits you.")
         if not a.app and not a.auto and getattr(sys, "frozen", False) and not task_exists():
             if ask_yes_no("Re-apply the patch automatically after Claude updates (scheduled task, runs at logon and every 3 hours)?"):
                 print("Task installed." if install_task() else "Could not install the task.")
