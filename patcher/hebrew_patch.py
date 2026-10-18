@@ -30,6 +30,11 @@ def run(cmd, **kw):
 LOCALES_RE = re.compile(r'(\["en-US","de-DE"[^\]]*?"id-ID")\]')
 NAMES_RE = re.compile(r'("id-ID":\{name:"Indonesian \(Indonesia\)",localName:"Indonesia \(Indonesia\)"\})(\};)')
 HE_NAME = '"he":{name:"Hebrew",localName:"\\u05E2\\u05D1\\u05E8\\u05D9\\u05EA"}'
+# The language picker lists only the catalogs the server offers; append Hebrew to that list (one memoised wrapper).
+PICKER_RE = re.compile(r'(function \w+\(\{localeNames:\w+,\.\.\.(\w+)\}\)\{let \w+=)(\w+)\(\2\);')
+PICKER_WRAP = '(x=>{if(!Array.isArray(x))return x;let m=(globalThis.__heM??=new WeakMap),r=m.get(x);return r||(r=x.includes("he")?x:[...x,"he"],m.set(x,r),r)})('
+# Choosing Hebrew must not depend on the server accepting the locale (it does not offer Hebrew): skip that call for "he".
+SWITCH_RE = re.compile(r'try\{await (\w+)\(\{locale:(\w+)\}\)\}catch\((\w+)\)\{')
 SCRIPT_TAG = '<script src="/assets/he-rtl.js"></script>'
 
 
@@ -74,8 +79,11 @@ def write(p, s): write_bytes(p, s.encode("utf-8"))
 def patch(ion: Path, translations: dict):
     """Order matters for a running app: first add the catalogs and the RTL script (nothing references them yet),
     and only then switch on the locale lists, so Claude never sees a language entry without its catalog."""
-    done = {"locale_lists": 0, "names": 0, "html": 0, "catalog": False}
+    done = {"locale_lists": 0, "names": 0, "html": 0, "picker": 0, "switch": 0, "catalog": False}
     remove_legacy(ion)
+    for b in ion.rglob("*" + MARK):                       # start from pristine files, whatever an older version of this tool did
+        try: write_bytes(b.with_name(b.name[:-len(MARK)]), b.read_bytes())
+        except OSError: pass
     write_bytes(ion / "assets" / "he-rtl.js", (ROOT / "assets" / "he-rtl.js").read_bytes())
     en = json.loads(read(ion / "i18n" / "en-US.json"))
     he = {k: translations[v] for k, v in en.items() if v in translations}
@@ -103,9 +111,13 @@ def patch(ion: Path, translations: dict):
         n = s
         n, c1 = LOCALES_RE.subn(lambda m: m.group(1) + ',"he"]', n)
         n, c2 = NAMES_RE.subn(lambda m: m.group(1) + "," + HE_NAME + m.group(2), n)
+        n, c3 = PICKER_RE.subn(lambda m: m.group(1) + PICKER_WRAP + m.group(3) + "(" + m.group(2) + "));", n)
+        c4 = 0
+        if "switchLocale:async" in n:
+            n, c4 = SWITCH_RE.subn(lambda m: "try{(" + m.group(2) + '==="he")||await ' + m.group(1) + "({locale:" + m.group(2) + "})}catch(" + m.group(3) + "){", n, count=1)
         if n != s:
             backup(js); write(js, n)
-            done["locale_lists"] += c1; done["names"] += c2
+            done["locale_lists"] += c1; done["names"] += c2; done["picker"] += c3; done["switch"] += c4
     for name in ("index.html", "frame-shell.html", "client-shell-v1.html"):
         h = ion / name
         if h.exists():
