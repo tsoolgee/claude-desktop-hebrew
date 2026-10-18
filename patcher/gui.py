@@ -22,7 +22,7 @@ def _app_override():
 
 def _claude_running():
     try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq claude.exe", "/FO", "CSV", "/NH"],
+        out = hp.run(["tasklist", "/FI", "IMAGENAME eq claude.exe", "/FO", "CSV", "/NH"],
                              capture_output=True, text=True).stdout
         return "claude.exe" in out.lower()
     except Exception:
@@ -71,14 +71,15 @@ class Api:
             ion = self._prepare(log)
             log.append("מוסיף קבצי שפה וכיוון RTL (Claude לא נסגר)…")
             res = hp.patch(ion, json.loads(hp.read(hp.ROOT / "translations" / "he.json")))
-            log.append(f"קטלוג עברית: {res['catalog']}")
+            log.append(f"קטלוג ממשק: {res['catalog']}")
+            log.append(f"קטלוג תפריטי האפליקציה: {res.get('native', 'לא נמצא')}")
             log.append(f"רשימות שפות שעודכנו: {res['locale_lists']}, דפי HTML: {res['html']}")
             if with_task and not self.override:
                 log.append("משימה מתוזמנת נוצרה." if hp.install_task() else "לא הצלחתי ליצור את המשימה המתוזמנת.")
             elif not with_task and not self.override and hp.task_exists():
                 hp.remove_task(); log.append("המשימה המתוזמנת הוסרה.")
             return {"ok": True, "log": log,
-                    "summary": "קבצי העברית נוספו. Claude לא נסגר, כך שהחיבור והשיחות הפעילות נשארו כמו שהיו."}
+                    "summary": "קבצי העברית נוספו. Claude לא נסגר, כך שהחיבור והשיחות הפעילות נשארו כמו שהיו. כדי לראות את העברית צריך להפעיל את Claude מחדש."}
         except Exception as e:
             log.append(f"שגיאה: {e}")
             return {"ok": False, "log": log, "error": str(e)}

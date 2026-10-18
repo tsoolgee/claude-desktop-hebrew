@@ -56,7 +56,7 @@ kbd{background:var(--bg);border:1px solid var(--line);border-bottom-width:2px;bo
 
 <div class="card note">
   <span>🔒</span>
-  <span><b>ההתקנה לא סוגרת ולא מפעילה מחדש את Claude</b> ולא נוגעת בחשבון המחובר שלכם או בשיחות הפעילות. היא רק מוסיפה קבצי שפה, והחלפה לעברית נעשית בהגדרות.</span>
+  <span><b>ההתקנה לא סוגרת ולא מפעילה מחדש את Claude</b> ולא נוגעת בחשבון המחובר שלכם או בשיחות הפעילות. היא רק מוסיפה קבצי שפה, והחלפה לעברית נעשית בהגדרות אחרי הפעלה מחדש של Claude ביוזמתכם.</span>
 </div>
 
 <div class="card">
@@ -114,8 +114,8 @@ async function doInstall(){
   showLog(r.log);lock(false);await refresh();
   if(r.ok){
     finish('ההתקנה הושלמה',r.summary,[
-      'ב-Claude פתחו <b>Settings ← Language</b> (הגדרות ← שפה) ובחרו <b>עברית</b>.',
-      'אם העברית לא מופיעה מיד, רעננו את החלון עם <kbd>Ctrl</kbd>+<kbd>R</kbd>, או הפעילו את Claude מחדש כשנוח לכם.'
+      '<b>סגרו את Claude לגמרי</b> (גם מהסמל במגש המערכת ליד השעון) ופתחו אותו מחדש — כשנוח לכם, החיבור לחשבון נשמר.',
+      'ב-Claude פתחו <b>Settings ← Language</b> (הגדרות ← שפה) ובחרו <b>עברית</b>.'
     ]);
   } else {finish('ההתקנה לא הושלמה',r.error||'אירעה שגיאה.',['פתחו את "הצגת פירוט" לפרטים.']);document.getElementById('done').style.borderColor='var(--bad)'}
 }

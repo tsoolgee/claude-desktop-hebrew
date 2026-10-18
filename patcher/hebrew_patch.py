@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Adds a Hebrew (he-IL) UI language to Claude Desktop.
+r"""Adds a Hebrew (he) UI language to Claude Desktop.
 
 Everything is patched inside resources/ion-dist (the web UI), located by content,
 not by file name, so it survives the hashed file names of new releases.
@@ -14,16 +14,29 @@ if getattr(sys, "frozen", False):
 else:
     ROOT = Path(__file__).resolve().parent.parent
 MARK = ".hebrew-orig"
+
+
+def run(cmd, **kw):
+    """subprocess.run that never shows a console window (powershell, takeown, icacls, schtasks...)."""
+    if os.name == "nt":
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0                                   # SW_HIDE
+        kw.setdefault("startupinfo", si)
+        kw.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
+    return subprocess.run(cmd, **kw)
+
+
 LOCALES_RE = re.compile(r'(\["en-US","de-DE"[^\]]*?"id-ID")\]')
 NAMES_RE = re.compile(r'("id-ID":\{name:"Indonesian \(Indonesia\)",localName:"Indonesia \(Indonesia\)"\})(\};)')
-HE_NAME = '"he-IL":{name:"Hebrew (Israel)",localName:"\u05E2\u05D1\u05E8\u05D9\u05EA (\u05D9\u05E9\u05E8\u05D0\u05DC)"}'
+HE_NAME = '"he":{name:"Hebrew",localName:"\\u05E2\\u05D1\\u05E8\\u05D9\\u05EA"}'
 SCRIPT_TAG = '<script src="/assets/he-rtl.js"></script>'
 
 
 def find_app():
     try:
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
+        out = run(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-NonInteractive", "-Command",
              "(Get-AppxPackage | ? { $_.Name -like '*Claude*' -and $_.InstallLocation -like '*WindowsApps*' } | select -First 1).InstallLocation"],
             capture_output=True, text=True).stdout.strip()
         if out and (Path(out) / "app").is_dir():
@@ -62,22 +75,33 @@ def patch(ion: Path, translations: dict):
     """Order matters for a running app: first add the catalogs and the RTL script (nothing references them yet),
     and only then switch on the locale lists, so Claude never sees a language entry without its catalog."""
     done = {"locale_lists": 0, "names": 0, "html": 0, "catalog": False}
+    remove_legacy(ion)
     write_bytes(ion / "assets" / "he-rtl.js", (ROOT / "assets" / "he-rtl.js").read_bytes())
     en = json.loads(read(ion / "i18n" / "en-US.json"))
     he = {k: translations[v] for k, v in en.items() if v in translations}
-    write_bytes(ion / "i18n" / "he-IL.json", json.dumps(he, ensure_ascii=False).encode("utf-8"))
+    extra = ROOT / "translations" / "extra_ids.json"      # messages used in code but absent from the shipped catalog (by id)
+    if extra.exists():
+        he.update(json.loads(read(extra)))
+    write_bytes(ion / "i18n" / "he.json", json.dumps(he, ensure_ascii=False).encode("utf-8"))
     done["catalog"] = f"{len(he)}/{len(en)} strings"
+    res = ion.parent                       # resources/: the desktop shell (main process) reads its own catalogs here
+    nat_src = res / "en-US.json"
+    if nat_src.exists():
+        nen = json.loads(read(nat_src))
+        nhe = {k: translations[v] for k, v in nen.items() if isinstance(v, str) and v in translations}
+        write_bytes(res / "he.json", json.dumps(nhe, ensure_ascii=False, indent=2).encode("utf-8"))
+        done["native"] = f"{len(nhe)}/{len(nen)} strings"
     dyn_src = ion / "i18n" / "dynamic" / "en-US.json"
     if dyn_src.exists():
         den = json.loads(read(dyn_src))
         dhe = {k: translations[v] for k, v in den.items() if isinstance(v, str) and v in translations}
-        write_bytes(ion / "i18n" / "dynamic" / "he-IL.json", json.dumps(dhe, ensure_ascii=False).encode("utf-8"))
+        write_bytes(ion / "i18n" / "dynamic" / "he.json", json.dumps(dhe, ensure_ascii=False).encode("utf-8"))
     for js in (ion / "assets").rglob("*.js"):
         s = read(js)
         if '"id-ID"' not in s:
             continue
         n = s
-        n, c1 = LOCALES_RE.subn(lambda m: m.group(1) + ',"he-IL"]', n)
+        n, c1 = LOCALES_RE.subn(lambda m: m.group(1) + ',"he"]', n)
         n, c2 = NAMES_RE.subn(lambda m: m.group(1) + "," + HE_NAME + m.group(2), n)
         if n != s:
             backup(js); write(js, n)
@@ -91,11 +115,23 @@ def patch(ion: Path, translations: dict):
     return done
 
 
+LEGACY = ("he-IL.json",)
+
+
+def remove_legacy(ion: Path):
+    for f in (ion / "i18n" / "he-IL.json", ion / "i18n" / "dynamic" / "he-IL.json", ion.parent / "he-IL.json"):
+        try:
+            if f.exists(): f.unlink()
+        except OSError:
+            pass
+
+
 def revert(ion: Path):
+    remove_legacy(ion)
     n = 0
     for b in ion.rglob("*" + MARK):
         shutil.copy2(b, b.with_name(b.name[:-len(MARK)])); b.unlink(); n += 1
-    for f in (ion / "assets" / "he-rtl.js", ion / "i18n" / "he-IL.json", ion / "i18n" / "dynamic" / "he-IL.json"):
+    for f in (ion / "assets" / "he-rtl.js", ion / "i18n" / "he.json", ion / "i18n" / "dynamic" / "he.json", ion.parent / "he.json"):
         if f.exists(): f.unlink()
     return n
 
@@ -118,19 +154,23 @@ def elevate():
 
 def unlock(ion: Path):
     """WindowsApps is owned by TrustedInstaller; take ownership and grant admins write access."""
-    subprocess.run(["takeown", "/F", str(ion), "/R", "/A", "/D", "Y"], capture_output=True)
-    subprocess.run(["icacls", str(ion), "/grant", "*S-1-5-32-544:(OI)(CI)F", "/T", "/C", "/Q"], capture_output=True)
+    run(["takeown", "/F", str(ion), "/R", "/A", "/D", "Y"], capture_output=True)
+    run(["icacls", str(ion), "/grant", "*S-1-5-32-544:(OI)(CI)F", "/T", "/C", "/Q"], capture_output=True)
+    res = ion.parent   # the folder itself only (no /R, no inheritance flags): enough to add resources/he.json
+    run(["takeown", "/F", str(res), "/A"], capture_output=True)
+    run(["icacls", str(res), "/grant", "*S-1-5-32-544:F", "/C", "/Q"], capture_output=True)
 
 
 TASK = "ClaudeHebrewPatch"
 
 
 def is_patched(ion: Path):
-    return (ion / "i18n" / "he-IL.json").exists() and (ion / "assets" / "he-rtl.js").exists()
+    return ((ion / "i18n" / "he.json").exists() and (ion / "assets" / "he-rtl.js").exists()
+            and ((ion.parent / "en-US.json").exists() <= (ion.parent / "he.json").exists()))
 
 
 def task_exists():
-    return subprocess.run(["schtasks", "/Query", "/TN", TASK], capture_output=True).returncode == 0
+    return run(["schtasks", "/Query", "/TN", TASK], capture_output=True).returncode == 0
 
 
 def install_task():
@@ -141,11 +181,11 @@ def install_task():
           "$p=New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest -LogonType Interactive;"
           "$s=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10);"
           f"Register-ScheduledTask -TaskName {TASK} -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null")
-    return subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True).returncode == 0
+    return run(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", ps], capture_output=True).returncode == 0
 
 
 def remove_task():
-    subprocess.run(["schtasks", "/Delete", "/TN", TASK, "/F"], capture_output=True)
+    run(["schtasks", "/Delete", "/TN", TASK, "/F"], capture_output=True)
 
 
 def ask_yes_no(q):
@@ -181,7 +221,7 @@ def main():
     else:
         print(patch(ion, json.loads(read(Path(a.translations)))))
         print("Done. Claude was NOT closed or restarted, so your signed-in session and any running work stay connected.")
-        print("To see Hebrew: in Claude open Settings > Language > Hebrew, then reload the window (Ctrl+R) or restart Claude when it suits you.")
+        print("To see Hebrew: fully quit Claude (also from the tray) and open it again, then Settings > Language > Hebrew.")
         if not a.app and not a.auto and getattr(sys, "frozen", False) and not task_exists():
             if ask_yes_no("Re-apply the patch automatically after Claude updates (scheduled task, runs at logon and every 3 hours)?"):
                 print("Task installed." if install_task() else "Could not install the task.")
